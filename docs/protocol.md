@@ -93,13 +93,70 @@ strictly causal forward predictions and a search-corrected permutation null of
 0/3000. Cycle length 83 × 120 s ≈ 2 h 46 min. (The 87-channel plan vs 83-slot
 period differ by four — possibly guard channels; unresolved.)
 
-## Topology
+## Network topology
 
-The meter studied is a **dual-homed relay**: for 68 h it advertised a fixed route
-to two EUI-64 access points, one with a stable link metric and one volatile.
-~60 endpoint meters route through it. The access points are never heard directly
-(they live elsewhere in the tree, on unmonitored channels) — they are known only
-by name, from the relay's own beacon.
+The addressing and the beacon's own routing records reveal the mesh structure —
+and it is not flat. Two device classes are distinguished by address format:
+
+| Class | Address format | Role |
+|---|---|---|
+| Endpoint | serial `00:13:50:05:00:xx:xx:xx` | leaf meters (~60 seen) |
+| Infrastructure | EUI-64 `00:13:50:FF:FE:60:xx:xx:xx` | access points / collectors (2 primary) |
+
+The meter studied sits mid-tree as a **relay**, and its 120 s beacon advertises
+its route:
+
+```mermaid
+graph TD
+    HE[Utility head-end<br/>UtilityIQ + key manager]
+    AP1[Access point A<br/>EUI-64 · stable uplink]
+    AP2[Access point B<br/>EUI-64 · volatile uplink]
+    R[This meter<br/>relay · beacons every 120 s]
+    E1[endpoint]
+    E2[endpoint]
+    E3[~60 endpoints total]
+    HE ---|cellular / fibre| AP1
+    HE ---|backhaul| AP2
+    AP1 --- R
+    AP2 --- R
+    R --- E1
+    R --- E2
+    R --- E3
+```
+
+**The route is remarkably stable.** Across 227 beacons over 68 h, the relay
+advertised the *same two access points* every time (221/227; a handful briefly
+swapped a third). It is not wandering the mesh — it holds a fixed
+primary + secondary uplink.
+
+**The beacon reports live link health.** Two bytes in the beacon are the relay's
+own link-quality estimate to each access point, and they behave completely
+differently:
+
+| Uplink | Metric byte | Mean | Std dev | Reading |
+|---|---|---|---|---|
+| Access point A | b51 | 189 | **8** | stable — primary |
+| Access point B | b95 | 67 | **86** (range 0–255) | volatile — backup |
+
+This resolved a long-running false lead: byte b95 looked like a drifting counter
+for days. It is neither counter nor clock — it is the meter broadcasting its
+real-time link quality to its secondary collector, swinging with propagation.
+The tree below the relay is shallow: the ~60 endpoints carry a route-cost byte
+peaking at 3–5 with a tail to 24 (most near, a few deep).
+
+**The access points are never heard on air** (zero frames sourced by any EUI-64
+node). They are the root of this cell's tree, on channels the receiver never
+monitored; they are known only by name, from the relay's own beacon. There is no
+way to make an access point respond to an outside receiver — it answers only
+enrolled, authenticated nodes, which is the mesh security model working as
+designed. Consumption uploads converge on these collectors, on their own
+schedule, and are the traffic a single fixed receiver is least likely to catch.
+
+*Note on observation geometry:* because the receiver sits on the relay's own
+listening channel, it hears everything addressed **to** the relay and little else
+— so the relay's apparent centrality is partly real (it is a well-connected
+router) and partly an artifact of where the antenna sits. Both are stated rather
+than conflated.
 
 ## The application payload is encrypted
 
