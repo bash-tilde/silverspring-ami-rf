@@ -1,23 +1,11 @@
-== On-air identification and role ==
+==On-air identification (inferred)==
 
-(From passive capture of a fixed-AMI NIC 511 network — see
-[[Silver Spring Networks Protocol]] for the frame format.)
+''From passive capture of a fixed-AMI NIC 511 network — see [[Silver Spring Networks Protocol]] for the frame format. The standalone access point above was '''not''' heard directly; what follows is inferred from how meters route toward it, so treat it as a hypothesis about this device's on-air identity, not a confirmed capture of it.''
 
-Access points are the root of a local mesh cell: endpoints and relays route
-toward them, and they backhaul to the utility head-end over cellular (the modem
-in the teardown photos above) or fibre.
+A [[Silver Spring Networks Relay|relay]]'s beacon lists the node(s) it routes ''up'' toward — its path to the head-end. In the capture these uplink targets:
 
-They are addressed by '''EUI-64''', distinct from endpoint meters:
+* use an '''EUI-64''' address, <code>00:13:50:FF:FE:60:xx:xx:xx</code> (Silver Spring OUI <code>00:13:50</code> with the standard MAC-48 → EUI-64 <code>FF:FE</code> expansion) — a different address format from endpoint meters, which are serial-form <code>00:13:50:05:00:xx:xx:xx</code>;
+* are '''never heard on air''' from a receiver sitting near one meter — consistent with a device at the root of the local tree, backhauling out (the cellular modem in the photos above) rather than beaconing locally;
+* are the fixed uplink for a relay that stayed dual-homed to two of them for the whole observation window.
 
-* Access point / infrastructure: <code>00:13:50:FF:FE:60:xx:xx:xx</code> — the
-  Silver Spring OUI <code>00:13:50</code> with the standard MAC-48 → EUI-64
-  <code>FF:FE</code> expansion. The Itron OUI <code>00:07:81</code> is also seen
-  post-acquisition.
-* Endpoint meters: serial form <code>00:13:50:05:00:xx:xx:xx</code>.
-
-An access point is '''not heard directly''' from an endpoint's vantage — it sits
-on the far side of the tree on channels a fixed receiver near one meter does not
-follow. It is identified instead by reference: a [[Silver Spring Networks Relay|relay]]
-lists its uplink access point(s) in its beacon's neighbour records, each with a
-link-quality metric. In one capture a relay was dual-homed to two access points
-(a stable primary and a volatile secondary) for the whole observation window.
+This matches what a standalone access point / concentrator ''would'' look like on air, but the identification rests on routing records, not on decoding a frame sourced by the device itself.
