@@ -1,0 +1,26 @@
+== On-air behaviour ==
+
+(From passive capture of a fixed-AMI NIC 511 network — see
+[[Silver Spring Networks Protocol]] for the frame format.)
+
+A relay is the one node type that beacons on a strict schedule: a '''120.000 s
+lattice''', phase holding to σ ≈ 0.25 s over 450+ cycles. Endpoint meters, by
+contrast, are event-driven (their timing jitters by seconds). This makes the
+relay easy to pick out.
+
+The beacon (frame length 111 in this variant) carries the relay's own serial
+plus a neighbour table — its uplink [[Silver Spring Networks Access Point|access
+points]] (EUI-64 form) and downstream endpoints, each with a link-quality byte.
+Observed behaviour:
+
+* '''Dual-homed''': a fixed primary + secondary access point, stable across the
+  whole capture (one link metric steady, the other volatile).
+* '''Channel follows the hop sequence''': channel = <code>slot mod 83</code> on
+  the 120 s lattice, so the relay's next beacon channel is predictable from its
+  slot index.
+* '''~60 endpoints''' were seen routing through a single relay; the relay
+  forwards their traffic toward the access points.
+
+The relay never sources a unicast we can read — only beacons and inbound
+acknowledgements — so its own consumption upload goes out on the access point's
+schedule, not its own.

@@ -45,7 +45,7 @@ the NIC 511 keystream linear complexity 9 (an 8-bit LFSR is ≤ 8).
 |-
 | Hop sequence || channel = f(slot mod 83), 153/153 forward predictions
 |-
-| Topology || dual-homed relay → two EUI-64 access points → head-end
+| Topology || dual-homed relay → two EUI-64 access points → head-end (see [[Silver Spring Networks Relay]], [[Silver Spring Networks Access Point]])
 |-
 | Payload || AES-CCM* encrypted, not recovered
 |}
@@ -98,7 +98,7 @@ errors visible as nonzero bytes in known-zero padding.
 
 Addresses: 8 bytes, OUI <code>00:13:50</code>. Endpoints serial-form
 (<code>00:13:50:05:00:xx…</code>); access points EUI-64
-(<code>00:13:50:FF:FE:60:xx…</code>). PHR byte 2 = <code>base(channel) ⊕
+(<code>00:13:50:FF:FE:60:xx…</code>, see [[Silver Spring Networks Access Point]]). PHR byte 2 = <code>base(channel) ⊕
 frame-type</code>, type ∈ {0 broadcast, 2 unicast, 3 beacon}.
 
 === Beacon timing and hopping ===

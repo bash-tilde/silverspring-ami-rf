@@ -1,0 +1,23 @@
+== On-air identification and role ==
+
+(From passive capture of a fixed-AMI NIC 511 network — see
+[[Silver Spring Networks Protocol]] for the frame format.)
+
+Access points are the root of a local mesh cell: endpoints and relays route
+toward them, and they backhaul to the utility head-end over cellular (the modem
+in the teardown photos above) or fibre.
+
+They are addressed by '''EUI-64''', distinct from endpoint meters:
+
+* Access point / infrastructure: <code>00:13:50:FF:FE:60:xx:xx:xx</code> — the
+  Silver Spring OUI <code>00:13:50</code> with the standard MAC-48 → EUI-64
+  <code>FF:FE</code> expansion. The Itron OUI <code>00:07:81</code> is also seen
+  post-acquisition.
+* Endpoint meters: serial form <code>00:13:50:05:00:xx:xx:xx</code>.
+
+An access point is '''not heard directly''' from an endpoint's vantage — it sits
+on the far side of the tree on channels a fixed receiver near one meter does not
+follow. It is identified instead by reference: a [[Silver Spring Networks Relay|relay]]
+lists its uplink access point(s) in its beacon's neighbour records, each with a
+link-quality metric. In one capture a relay was dual-homed to two access points
+(a stable primary and a volatile secondary) for the whole observation window.
