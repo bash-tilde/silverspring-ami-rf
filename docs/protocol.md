@@ -8,6 +8,22 @@ encrypted and is not covered — only shown to be encrypted.
 All node identifiers below are illustrative; real captured identifiers are not
 published.
 
+## Protocol variant
+
+rtl_433 ships a Silver Spring decoder (`silver_spring_mesh.c`) for a
+drive-by/water-meter variant with an 8-bit scrambler, a 3-byte PHR and an
+`SFD 0xF3A0`. The frames analysed here — from a fixed-AMI Aclara I-210+c —
+do **not** match that framing or scrambler, and the difference is verified:
+
+* The 8-bit scrambler descrambles none of these frames under any of its 255
+  seeds; the degree-9 LFSR below recovers the correct `00:13:50` OUI on all of
+  them.
+* Berlekamp–Massey measures this keystream's linear complexity as 9. An 8-bit
+  LFSR has complexity ≤ 8 and mathematically cannot generate it.
+
+Both analyses are correct for their own captures. What follows is the fixed-AMI
+variant.
+
 ## Physical layer
 
 2-GFSK, modulation index ≈ 0.5, at 100/150/200 kBd (per-frame). Bursts extracted

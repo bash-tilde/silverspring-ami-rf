@@ -10,6 +10,28 @@ framing, data whitening, integrity check, addressing, channel plan and the
 frequency-hopping sequence. The application payload is AES-CCM* encrypted and is
 **not** recovered — the work stops cleanly at that wall and documents exactly why.
 
+## Relationship to rtl_433's existing decoder
+
+rtl_433 already ships a Silver Spring decoder (`silver_spring_mesh.c`, by
+Benjamin Larsson, 2026). **This project documents a different variant of the
+protocol**, and the distinction is verified rather than assumed:
+
+| | rtl_433's `silver_spring_mesh` | This project |
+|---|---|---|
+| Endpoint | Badger **water** meter, drive-by mobile read | Aclara **electric** meter (NIC 511), fixed AMI mesh |
+| Framing | `SFD 0xF3A0 · 3-byte PHR · 4-byte FCS` | `0C 5F <ch> FF · 2-byte inverted PHR · 1-byte trailer` |
+| Scrambler | 8-bit LFSR `x⁸+x⁴+x³+x²+1` | degree-9 LFSR `x⁹+x⁸+x⁵+x²+1` |
+| CRC | CRC-32/MPEG-2 (init 0xFFFFFFFF) | CRC-32 (init 0) + per-length offset |
+
+The scrambler difference is decisive: the existing decoder's 8-bit scrambler
+does **not** descramble these frames under any of its 255 seeds, while the
+degree-9 LFSR here recovers the correct `00:13:50` OUI on every frame — and
+Berlekamp–Massey measures this keystream's linear complexity at **9**, which an
+8-bit LFSR cannot produce. So the "Silver Spring protocol" is not monolithic;
+this is the fixed-AMI Aclara/NIC-511 framing, which the existing decoder does not
+handle. Full credit to that decoder for the drive-by/water variant, and for
+independently establishing the CRC-32 and per-hop scrambler structure.
+
 ## Scope and ethics
 
 This is **passive receive-only research on my own meter.**
@@ -83,12 +105,17 @@ docs/
 
 ## Prior art
 
-The closest published work is the [RECESSIM Silver Spring Networks page](https://wiki.recessim.com/view/Silver_Spring_Networks_Protocol),
-a stub recording an unverified sync word and an incorrect channel count, with no
-whitening, CRC or framing. This project supersedes it on those points. The
-metering payload being encrypted matches the general AMI security literature:
-the only demonstrated path *into* the payload is firmware/key extraction from the
-hardware, never a break of the radio ciphertext.
+- **rtl_433 `silver_spring_mesh.c`** (Benjamin Larsson, 2026) — decodes a
+  *different* variant (drive-by/water); see the comparison above. Independently
+  establishes the CRC-32 and a per-hop scrambler, from primary sources (IEEE
+  802.15.4g draft, Silver Spring patents, the OUI registry).
+- **[RECESSIM Silver Spring Networks page](https://wiki.recessim.com/view/Silver_Spring_Networks_Protocol)** —
+  a stub recording an unverified sync word and an incorrect channel count, with
+  no whitening, CRC or framing.
+
+The metering payload being encrypted matches the general AMI security
+literature: the only demonstrated path *into* the payload is firmware/key
+extraction from the hardware, never a break of the radio ciphertext.
 
 ## License
 

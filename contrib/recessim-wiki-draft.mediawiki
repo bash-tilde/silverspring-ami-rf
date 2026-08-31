@@ -129,6 +129,16 @@ per-frame nonce field and incompressibility, this is '''AES-CCM* encryption'''
 head-end key manager and is not present on the air; the transport is open, the
 payload is closed by design.
 
+=== Note on variants ===
+
+rtl_433's <code>silver_spring_mesh</code> decoder (Benjamin Larsson) covers a
+'''different''' Silver Spring variant — a drive-by/water-meter framing with an
+8-bit scrambler, 3-byte PHR and SFD 0xF3A0. The fixed-AMI NIC 511 framing
+documented here uses a degree-9 scrambler and a different frame structure; the
+8-bit scrambler descrambles none of these frames. The Silver Spring ecosystem
+therefore has at least two distinct on-air framings.
+
 === References ===
 
 * Full write-up and reproducible code: [https://github.com/bash-tilde/silverspring-ami-rf silverspring-ami-rf]
+* rtl_433 <code>silver_spring_mesh.c</code> — decoder for the drive-by/water variant

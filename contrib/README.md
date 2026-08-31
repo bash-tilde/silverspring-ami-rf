@@ -13,9 +13,13 @@ difference (their FCC data is an older meter model). Contributed via the wiki
 
 ## `rtl_433/silverspring_ssn.c`
 
-A transport-layer decoder for [rtl_433](https://github.com/merbanan/rtl_433),
-which has no Silver Spring decoder. Emits source/destination node, channel,
-frame type, length and CRC status — the encrypted payload is not decoded.
+A transport-layer decoder for [rtl_433](https://github.com/merbanan/rtl_433).
+Note rtl_433 already has `silver_spring_mesh.c` (Benjamin Larsson) for a
+drive-by/water-meter variant; this targets the **distinct fixed-AMI variant**
+(degree-9 scrambler, `0C 5F` framing) that the existing decoder does not handle
+— verified: the existing 8-bit scrambler descrambles none of these frames.
+Emits source/destination node, channel, frame type, length and CRC status; the
+encrypted payload is not decoded.
 
 **Licensing:** this file is offered under **GPL-2.0-or-later** (rtl_433's
 license), unlike the MIT license of the rest of this repository — as the author
