@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.bin
+frames*.json
+!data/sample_frames.json
