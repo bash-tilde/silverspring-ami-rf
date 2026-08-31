@@ -176,13 +176,17 @@ than conflated.
 
 ## The application payload is encrypted
 
-The `ln=213` payload (195 bytes) is uniform-entropy with no zero bytes. Two such
-frames from the same source, captured 22 h apart, **XOR to full-entropy noise**
-(3/195 identical bytes) — proving per-frame keystream uniqueness. That excludes a
-fixed scrambler or keystream reuse. Combined with a per-frame nonce field in the
-clear and incompressibility (no gzip/zlib/bzip2/lzma/lz4 container at any offset;
-zlib *expands* it), this is **AES-CCM* encryption** — the standard for this
-device family (Itron/Certicom, NSA Suite B).
+The `ln=213` payload (195 bytes) is uniform-entropy (6.99 bits/byte) with no zero
+bytes — unlike every other frame class (2–4.7 bits/byte, many zeros). It is
+incompressible (no gzip/zlib/bzip2/lzma/lz4 container at any offset; zlib
+*expands* it), and Berlekamp–Massey gives it full linear complexity, so it is not
+a linear scrambler. Two frames from the same source XOR to full-entropy noise
+(3/195 identical bytes), consistent with a per-frame keystream — though one of the
+two is CRC-corrupt, so the entropy/incompressibility/non-linearity above are the
+primary evidence, not the XOR pair. Taken together this is **AES-CCM* encryption**
+— the standard for this device family (Itron/Certicom, NSA Suite B). A clean
+second same-source `ln=213` frame would make the keystream-uniqueness argument
+airtight; only one CRC-valid instance is in the corpus so far.
 
 The key is not on the air. AMI key management provisions a symmetric AES-128 key
 from a head-end key manager (bootstrapped by a factory ECC device identity); the
