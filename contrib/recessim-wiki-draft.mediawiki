@@ -1,121 +1,111 @@
-== Fixed-AMI variant (Aclara I-210+c / NIC 511) ==
+===Fixed-AMI variant (Aclara I-210+c / NIC 511)===
+Transport-layer documentation for the Silver Spring mesh format used by an Aclara I-210+c meter with a NIC 511 module on a fixed AMI network (passive RTL-SDR capture). The application payload is AES-CCM* encrypted; everything below is the transport layer.
 
-Transport-layer documentation for the Silver Spring mesh format used by an Aclara
-I-210+c meter with a NIC 511 module on a fixed AMI network (passive RTL-SDR
-capture). The application payload is AES-CCM* encrypted; everything below is the
-transport layer.
-
-This is a distinct on-air format from the other Silver Spring work — there are at
-least three, with different sync words and scramblers:
-
+This is a distinct on-air format from the capture above — there are at least three, with different sync words and scramblers:
 {| class="wikitable"
-! Source !! Sync / SFD !! Scrambler !! CRC
+!Source
+!Sync / SFD
+!Scrambler
+!CRC
 |-
-| This page's capture (<code>…008C900A</code>) || post-preamble <code>de 9d 27 27 16 66 f0 6c</code> || — || —
+|This page's capture (<code>…008C900A</code>)
+|post-preamble <code>de 9d 27 27 16 66 f0 6c</code>
+| —
+| —
 |-
-| rtl_433 <code>silver_spring_mesh</code> (drive-by/water) || <code>SFD 0xF3A0</code>, 3-byte PHR || 8-bit <code>x⁸+x⁴+x³+x²+1</code> || CRC-32/MPEG-2, 4-byte FCS
+|rtl_433 <code>silver_spring_mesh</code> (drive-by/water)
+|<code>SFD 0xF3A0</code>, 3-byte PHR
+|8-bit <code>x⁸+x⁴+x³+x²+1</code>
+|CRC-32/MPEG-2, 4-byte FCS
 |-
-| This variant (fixed-AMI NIC 511) || <code>0C 5F &lt;ch&gt; FF</code>, 2-byte inverted PHR || degree-9 <code>x⁹+x⁸+x⁵+x²+1</code> || CRC-32, 1-byte trailer
+|This variant (fixed-AMI NIC 511)
+|<code>0C 5F &lt;ch&gt; FF</code>, 2-byte inverted PHR
+|degree-9 <code>x⁹+x⁸+x⁵+x²+1</code>
+|CRC-32, 1-byte trailer
+|}
+The 8-bit and degree-9 scramblers are provably different: the 8-bit scrambler descrambles no NIC 511 frame at any of its 255 seeds, and Berlekamp–Massey gives the NIC 511 keystream linear complexity 9 (an 8-bit LFSR is ≤ 8).
+
+====Summary====
+{| class="wikitable"
+!Layer
+!Result
+|-
+|Modulation
+|2-GFSK, h≈0.5, 100/150/200 kBd (per-frame)
+|-
+|PHY header
+|<code>0C 5F &lt;channel&gt; FF</code>; channel = 255 − byte 2
+|-
+|Channel plan
+|87 channels, <code>f(N) = 902.2990 MHz + 299.991 kHz·N</code>, 300 kHz spacing
+|-
+|Whitening
+|degree-9 LFSR <code>x⁹+x⁸+x⁵+x²+1</code>, recovered by Berlekamp–Massey
+|-
+|Integrity
+|CRC-32 (poly 0x04C11DB7, MSB-first, init 0); trailer = MSB(crc) ⊕ K[len]
+|-
+|Framing
+|length-keyed header grammar; every byte of 12 length classes accounted for
+|-
+|Flags byte
+|<code>base(channel) ⊕ frame-type</code> (0=broadcast, 2=unicast, 3=beacon)
+|-
+|Beacon timing
+|120.000 s lattice, phase σ = 0.25 s over 450+ cycles
+|-
+|Hop sequence
+|channel = f(slot mod 83), 153/153 forward predictions
+|-
+|Topology
+|dual-homed relay → two EUI-64 access points → head-end (see [[Silver Spring Networks Relay]], [[Silver Spring Networks Access Point]])
+|-
+|Payload
+|AES-CCM* encrypted, not recovered
 |}
 
-The 8-bit and degree-9 scramblers are provably different: the 8-bit scrambler
-descrambles no NIC 511 frame at any of its 255 seeds, and Berlekamp–Massey gives
-the NIC 511 keystream linear complexity 9 (an 8-bit LFSR is ≤ 8).
+====PHY and channel====
+2-GFSK, modulation index ≈ 0.5, 100/150/200 kBd. The 4-byte block after the preamble is not a sync word: bytes 0/1/3 are fixed (<code>0C 5F .. FF</code>) and byte 2 is the channel, <code>N = 255 − X</code>. Carrier vs. N:
+<syntaxhighlight>
+f(N) = 902.2990 MHz + 299.991 kHz * N        N = 0..86   (87 channels, 300 kHz)
+</syntaxhighlight>
+Residuals < 2 kHz per channel. This differs from the FCC filing's 64 channels / 400 kHz (that filing is a different, earlier module).
 
-=== Summary ===
-
-{| class="wikitable"
-! Layer !! Result
-|-
-| Modulation || 2-GFSK, h≈0.5, 100/150/200 kBd (per-frame)
-|-
-| PHY header || <code>0C 5F &lt;channel&gt; FF</code>; channel = 255 − byte 2
-|-
-| Channel plan || 87 channels, <code>f(N) = 902.2990 MHz + 299.991 kHz·N</code>, 300 kHz spacing
-|-
-| Whitening || degree-9 LFSR <code>x⁹+x⁸+x⁵+x²+1</code>, recovered by Berlekamp–Massey
-|-
-| Integrity || CRC-32 (poly 0x04C11DB7, MSB-first, init 0); trailer = MSB(crc) ⊕ K[len]
-|-
-| Framing || length-keyed header grammar; every byte of 12 length classes accounted for
-|-
-| Flags byte || <code>base(channel) ⊕ frame-type</code> (0=broadcast, 2=unicast, 3=beacon)
-|-
-| Beacon timing || 120.000 s lattice, phase σ = 0.25 s over 450+ cycles
-|-
-| Hop sequence || channel = f(slot mod 83), 153/153 forward predictions
-|-
-| Topology || dual-homed relay → two EUI-64 access points → head-end (see [[Silver Spring Networks Relay]], [[Silver Spring Networks Access Point]])
-|-
-| Payload || AES-CCM* encrypted, not recovered
-|}
-
-=== PHY and channel ===
-
-2-GFSK, modulation index ≈ 0.5, 100/150/200 kBd. The 4-byte block after the
-preamble is not a sync word: bytes 0/1/3 are fixed (<code>0C 5F .. FF</code>) and
-byte 2 is the channel, <code>N = 255 − X</code>. Carrier vs. N:
-
- f(N) = 902.2990 MHz + 299.991 kHz · N        N = 0..86   (87 channels, 300 kHz)
-
-Residuals < 2 kHz per channel. This differs from the FCC filing's 64 channels /
-400 kHz (that filing is a different, earlier module).
-
-=== Whitening ===
-
+====Whitening====
 The PSDU is whitened by a degree-9 LFSR:
+<syntaxhighlight>
+b[n] = b[n-1] ^ b[n-2] ^ b[n-5] ^ b[n-8] ^ b[n-9]        period 255
+</syntaxhighlight>
+Recovered by Berlekamp–Massey over the all-zero payload padding of long frames (that region is raw keystream on the air; linear complexity comes out to 9). Plaintext bytes 0–4 are the constant serial prefix <code>00 13 50 05 00</code>, so the mask for any frame is <code>cipher[0:5] ^ prefix</code> (40 bits) extended by the recurrence — no per-frame seed needed. This is the "how it's being transformed" for the Mask column noted above.
 
- b[n] = b[n-1] ^ b[n-2] ^ b[n-5] ^ b[n-8] ^ b[n-9]        period 255
+====Integrity====
+The trailing byte is the top byte of a CRC-32 (poly <code>0x04C11DB7</code>, MSB-first, init 0) over the de-whitened frame, XORed with a per-length constant:
+<syntaxhighlight>
+K = {9:0x78, 12:0x0E, 14:0x5B, 16:0x7A, 21:0xEB, 22:0xE8, 29:0x05,
+     55:0xA6, 111:0x7D, 112:0x2D, 134:0x6E, 213:0x60}
+</syntaxhighlight>
+Validates on ~98% of frames (2816/2880 across the corpus); failures carry bit errors visible as nonzero bytes in known-zero padding.
 
-Recovered by Berlekamp–Massey over the all-zero payload padding of long frames
-(that region is raw keystream on the air; linear complexity comes out to 9).
-Plaintext bytes 0–4 are the constant serial prefix <code>00 13 50 05 00</code>,
-so the mask for any frame is <code>cipher[0:5] ^ prefix</code> (40 bits) extended
-by the recurrence — no per-frame seed needed.
+====Framing====
+<syntaxhighlight>
+frame := SRC(8) [DST(8)] {headers} payload TRAILER(1)
 
-=== Integrity ===
+ln= 12   SRC | 04 81 xx | TRAILER
+ln= 14   SRC | 01 03 aa bb cc | TRAILER
+ln= 22   SRC | DST | 01 03 aa bb cc | TRAILER
+ln= 29   SRC | DST | 01 03 .. | PAYLOAD(7) | TRAILER
+ln= 55   SRC | 01 03 .. | 04 81 xx | PAYLOAD(38) | TRAILER
+ln=111   SRC | 01 80 | 00 82 .. | PAYLOAD(96) | TRAILER   (beacon)
+ln=213   SRC | 00 82 .. | 01 03 .. | PAYLOAD(195) | TRAILER  (encrypted)
+</syntaxhighlight>
+Addresses: 8 bytes, OUI <code>00:13:50</code>. Endpoints serial-form (<code>00:13:50:05:00:xx…</code>); access points EUI-64 (<code>00:13:50:FF:FE:60:xx…</code>, see [[Silver Spring Networks Access Point]]). PHR byte 2 = <code>base(channel) ⊕ frame-type</code>, type ∈ {0 broadcast, 2 unicast, 3 beacon}.
 
-The trailing byte is the top byte of a CRC-32 (poly <code>0x04C11DB7</code>,
-MSB-first, init 0) over the de-whitened frame, XORed with a per-length constant:
+====Beacon timing and hopping====
+The relay node beacons on a 120.000 s lattice (phase σ 0.25 s over 450+ cycles). By slot index, channel = <code>slot mod 83</code> (verified by 153/153 strictly causal forward predictions, permutation null 0/3000). Cycle = 83 × 120 s ≈ 2h46m. See [[Silver Spring Networks Relay]].
 
- K = {9:0x78, 12:0x0E, 14:0x5B, 16:0x7A, 21:0xEB, 22:0xE8, 29:0x05,
-      55:0xA6, 111:0x7D, 112:0x2D, 134:0x6E, 213:0x60}
+====Payload====
+<code>ln=213</code> payloads are 195 bytes of uniform, zero-free, incompressible data (full linear complexity under Berlekamp–Massey — not a linear scrambler, unlike the whitened classes). This is AES-CCM* encryption (Itron/Certicom Suite B). The key is provisioned by the head-end key manager and held in the meter's secure element, not derivable from the air.
 
-Validates on ~98% of frames (2816/2880 across the corpus); failures carry bit
-errors visible as nonzero bytes in known-zero padding.
-
-=== Framing ===
-
- frame := SRC(8) [DST(8)] {headers} payload TRAILER(1)
-
- ln= 12   SRC | 04 81 xx | TRAILER
- ln= 14   SRC | 01 03 aa bb cc | TRAILER
- ln= 22   SRC | DST | 01 03 aa bb cc | TRAILER
- ln= 29   SRC | DST | 01 03 .. | PAYLOAD(7) | TRAILER
- ln= 55   SRC | 01 03 .. | 04 81 xx | PAYLOAD(38) | TRAILER
- ln=111   SRC | 01 80 | 00 82 .. | PAYLOAD(96) | TRAILER   (beacon)
- ln=213   SRC | 00 82 .. | 01 03 .. | PAYLOAD(195) | TRAILER  (encrypted)
-
-Addresses: 8 bytes, OUI <code>00:13:50</code>. Endpoints serial-form
-(<code>00:13:50:05:00:xx…</code>); access points EUI-64
-(<code>00:13:50:FF:FE:60:xx…</code>, see [[Silver Spring Networks Access Point]]). PHR byte 2 = <code>base(channel) ⊕
-frame-type</code>, type ∈ {0 broadcast, 2 unicast, 3 beacon}.
-
-=== Beacon timing and hopping ===
-
-The relay node beacons on a 120.000 s lattice (phase σ 0.25 s over 450+ cycles).
-By slot index, channel = <code>slot mod 83</code> (verified by 153/153 strictly
-causal forward predictions, permutation null 0/3000). Cycle = 83 × 120 s ≈ 2h46m.
-
-=== Payload ===
-
-<code>ln=213</code> payloads are 195 bytes of uniform, zero-free, incompressible
-data (full linear complexity under Berlekamp–Massey — not a linear scrambler,
-unlike the whitened classes). This is AES-CCM* encryption (Itron/Certicom Suite
-B). The key is provisioned by the head-end key manager and held in the meter's
-secure element, not derivable from the air.
-
-=== References ===
-
+====References====
 * Reproducible code and full write-up: [https://github.com/bash-tilde/silverspring-ami-rf github.com/bash-tilde/silverspring-ami-rf]
 * rtl_433 <code>silver_spring_mesh.c</code> (Benjamin Larsson) — the drive-by/water variant
