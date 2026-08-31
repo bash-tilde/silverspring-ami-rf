@@ -38,8 +38,17 @@ def mask_for(cipher):
 def dewhiten(cipher):
     return [a ^ b for a, b in zip(cipher, mask_for(cipher))]
 
-def whiten(plain):                              # inverse, for the frame generator
-    seed = _bits([p ^ q for p, q in zip(plain[:5], PREFIX)])
+def whiten(plain, phase):
+    """Inverse of dewhiten, for the frame generator.
+
+    `phase` is the mask's first 5 bytes (the 40-bit LFSR seed) and must be
+    non-zero. On the wire the mask is an independent keystream; because
+    plaintext[0:5] is the constant PREFIX, its first 5 bytes surface in the
+    ciphertext as cipher[0:5] = PREFIX ^ phase, which is exactly what dewhiten
+    reads back. (Seeding from plaintext would give an all-zero seed — a fixed
+    point of the LFSR — and no whitening at all.)"""
+    assert any(phase[:5]), "phase must be non-zero"
+    seed = _bits(list(phase[:5]))
     m = _bytes(lfsr_stream(seed, len(plain) * 8))
     return [a ^ b for a, b in zip(plain, m)]
 

@@ -40,7 +40,8 @@ def make_frame(length, flags, chan, rng):
     plain = plain[:length-1]                      # trim/pad to length-1, leave room for trailer
     while len(plain) < length-1: plain.append(next(rng))
     plain = plain + [trailer(plain, length)]      # append CRC-32 trailer
-    cipher = whiten(plain)
+    phase = [(next(rng) | 1), next(rng), next(rng), next(rng), next(rng)]  # non-zero 40-bit mask seed
+    cipher = whiten(plain, phase)
     X = 255 - chan
     sync = f"{0x0C:08b}{0x5F:08b}{X:08b}{0xFF:08b}"
     return dict(ln=length, fl=flags, sync=sync, psdu=cipher,

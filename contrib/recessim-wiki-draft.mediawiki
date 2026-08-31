@@ -1,0 +1,134 @@
+== Transport-layer analysis (NIC 511, 2026) ==
+
+The following analysis was performed passively against a residential
+'''Aclara I-210+c''' electric meter carrying a '''Silver Spring Networks
+NIC 511''' radio module (FCC ID OWS-NIC511), on the 902–928 MHz band, using an
+RTL-SDR. It recovers the '''transport layer''' of the mesh — framing, data
+whitening, integrity check, addressing, channel plan and the frequency-hopping
+sequence. The application payload is AES-CCM* encrypted and is '''not'''
+recovered. Reproducible code and a full write-up:
+[https://github.com/bash-tilde/silverspring-ami-rf silverspring-ami-rf].
+
+All node identifiers below are shown as illustrative placeholders; no real meter
+identifiers are published.
+
+'''Relationship to the existing page:''' the modulation modes above are from the
+FCC filing of an earlier meter (SK9AMI7). The measurements here are from a
+different, later module (NIC 511) and differ in places — most notably the
+channel plan (see below). Where they differ, treat them as distinct device
+generations rather than corrections.
+
+=== Physical layer ===
+
+2-GFSK, modulation index ≈ 0.5, at 100/150/200 kBd (varying per frame). Bursts
+were extracted from raw IQ by envelope energy detection, then demodulated by
+frequency discrimination and symbol-timing recovery.
+
+=== Frame / PHY header — the channel is transmitted in the clear ===
+
+What appears as a long <code>aa aa…</code>/<code>55 55…</code> preamble is
+followed by a 4-byte PHY header, '''not''' a fixed sync word:
+
+ 0C 5F <X> FF
+
+Bytes 0, 1 and 3 are constant (<code>0C 5F … FF</code>); '''byte 2 is the channel
+number''', encoded as <code>N = 255 − X</code>. This differs from the earlier
+page's <code>0xAAAAAAAA</code> sync guess, which is the preamble continuation.
+
+=== Channel plan ===
+
+Fitting the measured per-frame carrier against the header channel number N:
+
+ f(N) = 902.2990 MHz + 299.991 kHz · N        N = 0 … 86   (87 channels)
+
+Residuals are 0–2 kHz on a 300 kHz grid for every channel the receiver could
+hear. '''Note the discrepancy''' with the FCC-documented 64-channel / 400 kHz
+mode: on this NIC 511 unit the observed plan is 87 channels at 300 kHz spacing.
+This may reflect a different device configuration or firmware generation, not an
+error in the FCC data.
+
+=== Data whitening — degree-9 LFSR ===
+
+The PSDU is whitened. Long frames carry a run of all-zero payload padding, so the
+ciphertext there is the raw keystream. Berlekamp–Massey on ~192 bits of it
+returns '''linear complexity 9''' (a random stream would give ~96), recovering
+the generator directly with no search:
+
+ b[n] = b[n−1] ⊕ b[n−2] ⊕ b[n−5] ⊕ b[n−8] ⊕ b[n−9]        period 255
+
+Because plaintext bytes 0–4 are the constant serial prefix
+<code>00 13 50 05 00</code>, the mask for ''any'' frame is recoverable from that
+frame alone (<code>mask[0:5] = cipher[0:5] ⊕ prefix</code> seeds the 9-bit
+register). 100% of captured frames de-whiten to a valid serial prefix — a
+2<sup>−40</sup> per-frame coincidence probability.
+
+=== Integrity — CRC-32 ===
+
+The trailing byte is the top byte of a '''CRC-32''' (polynomial
+<code>0x04C11DB7</code>, MSB-first, init 0) over the de-whitened frame, XORed
+with a per-length constant K[len]:
+
+ K = {9:0x78, 12:0x0E, 14:0x5B, 16:0x7A, 21:0xEB, 22:0xE8, 29:0x05,
+      55:0xA6, 111:0x7D, 112:0x2D, 134:0x6E, 213:0x60}
+
+It validates on 386/392 captured frames; the 6 failures are independently
+corroborated corrupt frames. This directly addresses the earlier page's note
+that "no checking is done of the packets" — a working per-frame integrity check
+now exists.
+
+=== Framing grammar ===
+
+The length field determines the header stack deterministically. This grammar
+accounts for every byte of all observed length classes:
+
+ frame := SRC(8) [DST(8)] {headers} payload TRAILER(1)
+
+ ln= 12   SRC | 04 81 xx | TRAILER
+ ln= 14   SRC | 01 03 aa bb cc | TRAILER
+ ln= 22   SRC | DST | 01 03 aa bb cc | TRAILER
+ ln= 29   SRC | DST | 01 03 .. | PAYLOAD(7) | TRAILER
+ ln= 55   SRC | 01 03 .. | 04 81 xx | PAYLOAD(38) | TRAILER
+ ln=111   SRC | 01 80 | 00 82 .. | PAYLOAD(96) | TRAILER   (beacon)
+ ln=213   SRC | 00 82 .. | 01 03 .. | PAYLOAD(195) | TRAILER  (encrypted)
+
+Node addresses are 8 bytes with OUI <code>00:13:50</code> (Silver Spring).
+Endpoints use a serial format (<code>00:13:50:05:00:xx:xx:xx</code>);
+infrastructure/access points use an EUI-64 form
+(<code>00:13:50:FF:FE:60:xx:xx:xx</code>, a MAC-48 → EUI-64 mapping).
+
+=== Flags byte ===
+
+The PHR's second byte decomposes as <code>fl = base(channel) ⊕ code</code>,
+where code ∈ {0 = broadcast, 2 = unicast, 3 = beacon}. Zero exceptions across
+445 frames.
+
+=== Beacon timing and frequency hopping ===
+
+One node type (a local relay) beacons on an '''exact 120.000 s lattice''' (phase
+σ = 0.25 s over 450+ cycles). Assigning each beacon an integer slot index, the
+channel is a function of '''slot mod 83''': uniquely at N = 83, with 153/153
+strictly causal forward predictions and a search-corrected permutation null of
+0/3000. Cycle length ≈ 2 h 46 min.
+
+=== Network topology ===
+
+The meter studied is a dual-homed '''relay''': across 227 beacons over 68 h it
+advertised a fixed route to two EUI-64 access points, one with a stable link
+metric (σ = 8) and one volatile (σ = 86). ~60 endpoint meters route through it.
+The access points are never heard on air — they are the root of the local tree,
+on unmonitored channels, known only by name from the relay's beacon.
+
+=== Application payload — encrypted ===
+
+The <code>ln=213</code> payload (195 bytes) is uniform-entropy with no zero
+bytes. Two such frames from the same source, captured 22 h apart, '''XOR to
+full-entropy noise''' (3/195 identical bytes), proving per-frame keystream
+uniqueness — a fixed scrambler or keystream reuse is excluded. Combined with a
+per-frame nonce field and incompressibility, this is '''AES-CCM* encryption'''
+(consistent with Itron/Certicom NSA Suite B). The key is provisioned by the
+head-end key manager and is not present on the air; the transport is open, the
+payload is closed by design.
+
+=== References ===
+
+* Full write-up and reproducible code: [https://github.com/bash-tilde/silverspring-ami-rf silverspring-ami-rf]
