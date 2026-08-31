@@ -1,105 +1,76 @@
-== Transport-layer analysis (NIC 511, 2026) ==
+== Fixed-AMI variant (Aclara I-210+c / NIC 511) ==
 
-The following analysis was performed passively against a residential
-'''Aclara I-210+c''' electric meter carrying a '''Silver Spring Networks
-NIC 511''' radio module (FCC ID OWS-NIC511), on the 902–928 MHz band, using an
-RTL-SDR. It recovers the '''transport layer''' of the mesh — framing, data
-whitening, integrity check, addressing, channel plan and the frequency-hopping
-sequence. The application payload is AES-CCM* encrypted and is '''not'''
-recovered. Reproducible code and a full write-up:
-[https://github.com/bash-tilde/silverspring-ami-rf silverspring-ami-rf].
+I spent some time reverse-engineering the mesh radio on my own power meter — an
+Aclara I-210+c with a Silver Spring NIC 511 module, on a fixed AMI network. It's
+passive receive only, with an RTL-SDR. The transport layer came apart cleanly
+(framing, whitening, CRC, addressing, channel plan, hopping); the actual meter
+payload is AES-CCM* encrypted, so that stays closed.
 
-All node identifiers below are shown as illustrative placeholders; no real meter
-identifiers are published.
+The important thing up front: '''this is not the same on-air format as the other
+Silver Spring work.''' There are at least three different framings floating
+around and they don't share a scrambler or a sync:
 
-'''Relationship to the existing page:''' the modulation modes above are from the
-FCC filing of an earlier meter (SK9AMI7). The measurements here are from a
-different, later module (NIC 511) and differ in places — most notably the
-channel plan (see below). Where they differ, treat them as distinct device
-generations rather than corrections.
+* This wiki page's own capture (meter <code>…008C900A</code>) has the
+  post-preamble <code>de 9d 27 27 16 66 f0 6c</code> — matches neither of the
+  others.
+* rtl_433's <code>silver_spring_mesh</code> decoder (Benjamin Larsson) handles a
+  drive-by/water-meter variant: <code>SFD 0xF3A0</code>, 3-byte PHR, an '''8-bit'''
+  scrambler, a 4-byte CRC-32/MPEG-2 FCS.
+* What I'm describing here (fixed-AMI NIC 511): sync <code>0C 5F &lt;ch&gt; FF</code>,
+  2-byte inverted PHR, a '''degree-9''' LFSR whitening, and a 1-byte
+  CRC-32-derived trailer.
 
-=== On-air variants (read first) ===
+I checked, and the two scramblers really are different — Larsson's 8-bit one
+descrambles none of my frames at any of its 255 seeds, and Berlekamp–Massey puts
+my keystream's linear complexity at 9, which an 8-bit LFSR can't reach. So the
+rest of this is just the NIC 511 variant; go to rtl_433 for the water one.
 
-"Silver Spring Networks protocol" is not a single on-air format. At least three
-distinct data points now exist, and they do '''not''' share framing or scrambler:
+Everything below is reproducible — code and a longer write-up are at
+[https://github.com/bash-tilde/silverspring-ami-rf github.com/bash-tilde/silverspring-ami-rf].
 
-* '''This page's capture''' (meter <code>…008C900A</code>): post-preamble
-  <code>de 9d 27 27 16 66 f0 6c</code>. Matches neither of the two below.
-* '''rtl_433 <code>silver_spring_mesh</code>''' (Benjamin Larsson): a
-  drive-by/water-meter variant (Badger) — <code>SFD 0xF3A0</code>, 3-byte PHR,
-  '''8-bit''' scrambler (<code>x⁸+x⁴+x³+x²+1</code>), 4-byte CRC-32/MPEG-2 FCS.
-* '''This analysis''' (Aclara I-210+c / NIC 511, fixed AMI): sync
-  <code>0C 5F &lt;ch&gt; FF</code>, 2-byte inverted PHR, '''degree-9''' LFSR
-  whitening, 1-byte CRC-32-derived trailer.
+=== The PHY, and the channel is in the clear ===
 
-The two scramblers are provably different, not two descriptions of one: the
-8-bit scrambler descrambles none of the NIC 511 frames under any of its 255
-seeds, while Berlekamp–Massey measures the NIC 511 keystream's linear complexity
-as 9 — which an 8-bit LFSR cannot generate. Sections below document the NIC 511
-fixed-AMI variant; see rtl_433 for the drive-by/water one.
+2-GFSK, h≈0.5, running at 100, 150 or 200 kBd depending on the frame. What looks
+like a sync word is actually <code>0C 5F &lt;X&gt; FF</code> — and byte 2 is the
+channel number, as <code>N = 255 - X</code>. Fit the carrier against that and you
+get a clean grid:
 
-=== Physical layer ===
+ f(N) = 902.2990 MHz + 299.991 kHz * N        N = 0..86   (87 channels)
 
-2-GFSK, modulation index ≈ 0.5, at 100/150/200 kBd (varying per frame). Bursts
-were extracted from raw IQ by envelope energy detection, then demodulated by
-frequency discrimination and symbol-timing recovery.
+Residuals are under 2 kHz on a 300 kHz grid. Note that's 87 channels at 300 kHz,
+not the 64-at-400-kHz from the FCC filing — could be a firmware/config
+difference, my unit is a NIC 511.
 
-=== Frame / PHY header — the channel is transmitted in the clear ===
+=== Whitening: it's a degree-9 LFSR ===
 
-What appears as a long <code>aa aa…</code>/<code>55 55…</code> preamble is
-followed by a 4-byte PHY header, '''not''' a fixed sync word:
+The PSDU is whitened. The trick to cracking it: the long frames have a big run of
+all-zero payload, so on the air that region is just the raw keystream. Run
+Berlekamp–Massey on it and you get linear complexity 9 and the polynomial falls
+right out:
 
- 0C 5F <X> FF
+ b[n] = b[n-1] ^ b[n-2] ^ b[n-5] ^ b[n-8] ^ b[n-9]        period 255
 
-Bytes 0, 1 and 3 are constant (<code>0C 5F … FF</code>); '''byte 2 is the channel
-number''', encoded as <code>N = 255 − X</code>. This differs from the earlier
-page's <code>0xAAAAAAAA</code> sync guess, which is the preamble continuation.
+You don't even need to know the per-frame seed. Plaintext bytes 0-4 are always
+the serial prefix <code>00 13 50 05 00</code>, so <code>mask[0:5] = cipher[0:5] ^
+prefix</code> gives you the first 40 keystream bits, and the recurrence gives you
+the rest. Every frame I caught de-whitens to that prefix.
 
-=== Channel plan ===
+=== The trailing byte is a CRC-32 ===
 
-Fitting the measured per-frame carrier against the header channel number N:
-
- f(N) = 902.2990 MHz + 299.991 kHz · N        N = 0 … 86   (87 channels)
-
-Residuals are 0–2 kHz on a 300 kHz grid for every channel the receiver could
-hear. '''Note the discrepancy''' with the FCC-documented 64-channel / 400 kHz
-mode: on this NIC 511 unit the observed plan is 87 channels at 300 kHz spacing.
-This may reflect a different device configuration or firmware generation, not an
-error in the FCC data.
-
-=== Data whitening — degree-9 LFSR ===
-
-The PSDU is whitened. Long frames carry a run of all-zero payload padding, so the
-ciphertext there is the raw keystream. Berlekamp–Massey on ~192 bits of it
-returns '''linear complexity 9''' (a random stream would give ~96), recovering
-the generator directly with no search:
-
- b[n] = b[n−1] ⊕ b[n−2] ⊕ b[n−5] ⊕ b[n−8] ⊕ b[n−9]        period 255
-
-Because plaintext bytes 0–4 are the constant serial prefix
-<code>00 13 50 05 00</code>, the mask for ''any'' frame is recoverable from that
-frame alone (<code>mask[0:5] = cipher[0:5] ⊕ prefix</code> seeds the 9-bit
-register). 100% of captured frames de-whiten to a valid serial prefix — a
-2<sup>−40</sup> per-frame coincidence probability.
-
-=== Integrity — CRC-32 ===
-
-The trailing byte is the top byte of a '''CRC-32''' (polynomial
-<code>0x04C11DB7</code>, MSB-first, init 0) over the de-whitened frame, XORed
-with a per-length constant K[len]:
+This page currently says "no checking is done of the packets" — there is a check,
+it's just at the end. The last byte is the top byte of a CRC-32 (poly
+<code>0x04C11DB7</code>, MSB-first, init 0) over the de-whitened frame, XORed with
+a per-length constant:
 
  K = {9:0x78, 12:0x0E, 14:0x5B, 16:0x7A, 21:0xEB, 22:0xE8, 29:0x05,
       55:0xA6, 111:0x7D, 112:0x2D, 134:0x6E, 213:0x60}
 
-It validates on 386/392 captured frames; the 6 failures are independently
-corroborated corrupt frames. This directly addresses the earlier page's note
-that "no checking is done of the packets" — a working per-frame integrity check
-now exists.
+That validates on ~98% of captured frames; the handful that fail are corrupt
+(bit errors show up as junk in the known-zero padding).
 
-=== Framing grammar ===
+=== Frame layout ===
 
-The length field determines the header stack deterministically. This grammar
-accounts for every byte of all observed length classes:
+The length tells you the header stack. This accounts for every byte:
 
  frame := SRC(8) [DST(8)] {headers} payload TRAILER(1)
 
@@ -111,45 +82,30 @@ accounts for every byte of all observed length classes:
  ln=111   SRC | 01 80 | 00 82 .. | PAYLOAD(96) | TRAILER   (beacon)
  ln=213   SRC | 00 82 .. | 01 03 .. | PAYLOAD(195) | TRAILER  (encrypted)
 
-Node addresses are 8 bytes with OUI <code>00:13:50</code> (Silver Spring).
-Endpoints use a serial format (<code>00:13:50:05:00:xx:xx:xx</code>);
-infrastructure/access points use an EUI-64 form
-(<code>00:13:50:FF:FE:60:xx:xx:xx</code>, a MAC-48 → EUI-64 mapping).
+Addresses are 8 bytes, OUI <code>00:13:50</code>. Endpoints are serial-form
+(<code>00:13:50:05:00:xx…</code>), access points are EUI-64
+(<code>00:13:50:FF:FE:60:xx…</code>). The second byte of the PHR turns out to be
+<code>base(channel) XOR frame-type</code>, where the type is 0=broadcast,
+2=unicast, 3=beacon.
 
-=== Flags byte ===
+=== Beacon timing and hopping ===
 
-The PHR's second byte decomposes as <code>fl = base(channel) ⊕ code</code>,
-where code ∈ {0 = broadcast, 2 = unicast, 3 = beacon}. Zero exceptions across
-445 frames.
+One node (a relay) beacons on a dead-steady 120.000 s clock — phase holds to a
+quarter-second over hundreds of cycles. Number the beacons by slot and the
+channel is just <code>slot mod 83</code>. I predicted a bunch of hops forward and
+got 153 out of 153 right. The cycle is 83 x 120 s, about 2h46m.
 
-=== Beacon timing and frequency hopping ===
+=== The payload is encrypted ===
 
-One node type (a local relay) beacons on an '''exact 120.000 s lattice''' (phase
-σ = 0.25 s over 450+ cycles). Assigning each beacon an integer slot index, the
-channel is a function of '''slot mod 83''': uniquely at N = 83, with 153/153
-strictly causal forward predictions and a search-corrected permutation null of
-0/3000. Cycle length ≈ 2 h 46 min.
-
-=== Network topology ===
-
-The meter studied is a dual-homed '''relay''': across 227 beacons over 68 h it
-advertised a fixed route to two EUI-64 access points, one with a stable link
-metric (σ = 8) and one volatile (σ = 86). ~60 endpoint meters route through it.
-The access points are never heard on air — they are the root of the local tree,
-on unmonitored channels, known only by name from the relay's beacon.
-
-=== Application payload — encrypted ===
-
-The <code>ln=213</code> payload (195 bytes) is uniform-entropy with no zero
-bytes. Two such frames from the same source, captured 22 h apart, '''XOR to
-full-entropy noise''' (3/195 identical bytes), proving per-frame keystream
-uniqueness — a fixed scrambler or keystream reuse is excluded. Combined with a
-per-frame nonce field and incompressibility, this is '''AES-CCM* encryption'''
-(consistent with Itron/Certicom NSA Suite B). The key is provisioned by the
-head-end key manager and is not present on the air; the transport is open, the
-payload is closed by design.
+The <code>ln=213</code> frames are the odd ones out — 195 bytes of uniform,
+zero-free, incompressible payload, where every other class is full of structure
+and zeros. Berlekamp–Massey gives it full linear complexity, so it's not a linear
+scrambler like the rest. It's AES-CCM* (the usual Itron/Certicom Suite B setup).
+The key lives in the head-end key manager and the meter's secure element, not on
+the air — so this is where it stops. The transport is wide open; the meter
+reading isn't coming out over the radio.
 
 === References ===
 
-* Full write-up and reproducible code: [https://github.com/bash-tilde/silverspring-ami-rf silverspring-ami-rf]
-* rtl_433 <code>silver_spring_mesh.c</code> — decoder for the drive-by/water variant
+* Code + full write-up: [https://github.com/bash-tilde/silverspring-ami-rf github.com/bash-tilde/silverspring-ami-rf]
+* rtl_433 <code>silver_spring_mesh.c</code> (Benjamin Larsson) — the drive-by/water variant
